@@ -1,6 +1,7 @@
 import type { Comment, Issue, IssueDetail, StatusCategory } from "./beads";
 import type { Progress } from "./board";
 import { cls, el, icon, token } from "./dom";
+import { features } from "./features";
 import { dateTime, humanize, leaseExpired, relativeTime } from "./format";
 import { renderMarkdown, type IssueRefs } from "./markdown";
 import { priorityChip, progressBar, statusChip, typeChip } from "./render";
@@ -127,7 +128,7 @@ function metaList(issue: Issue, ctx: DetailContext): HTMLElement {
     ["Deferred until", issue.defer_until ? time(issue.defer_until, ctx.now) : null],
     [
       "Lease expires",
-      issue.lease_expires_at
+      features.leases && issue.lease_expires_at
         ? el(
             "span",
             { class: cls(leaseExpired(issue, ctx.now) && "warn") },

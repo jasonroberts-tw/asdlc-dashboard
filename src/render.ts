@@ -1,6 +1,7 @@
 import type { Issue, StatusCategory } from "./beads";
 import type { Column, ColumnId, Progress } from "./board";
 import { cls, el, icon, token } from "./dom";
+import { features } from "./features";
 import { dateTime, initials, leaseExpired, relativeTime } from "./format";
 
 export interface BoardContext {
@@ -119,7 +120,8 @@ function renderCard(issue: Issue, columnId: ColumnId, ctx: BoardContext): HTMLEl
             icon("block"),
             blockers.length,
           ),
-        leaseExpired(issue, ctx.now) &&
+        features.leases &&
+          leaseExpired(issue, ctx.now) &&
           el(
             "span",
             {

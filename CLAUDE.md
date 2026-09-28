@@ -59,6 +59,7 @@ The GUI app does not inherit the shell's `PATH` when launched from Finder, so `b
 - `beads.ts`: TypeScript shapes of bd's JSON and the `invoke` wrappers.
 - `board.ts`: pure logic (column assignment, filters, sorting, epic progress); tested in `board.test.ts`. Columns come from the status **category** (`active`, `wip`, `done`, `frozen`), so custom statuses land correctly; `blocked` status and open issues listed by `bd blocked` go to Blocked.
 - `render.ts` (columns and cards), `detail.ts` (details panel), `markdown.ts` (sanitized markdown, issue IDs turned into links), `format.ts` (times, initials).
+- `features.ts`: build-time toggles for hidden features, all off by default. `leases` gates the "stale" card badge and the "Lease expires" detail row.
 - `main.ts`: state, events, refresh loop. Recent folders and the "done" window are kept in `localStorage`. A `generation` counter drops answers that arrive after the user switched workspace.
 
 Link clicks are intercepted: `[data-issue]` elements open that issue, and `http(s)`/`mailto` links open in the system browser through the opener plugin. Nothing navigates the webview.
