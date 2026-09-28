@@ -30,6 +30,8 @@ No linter is configured. `tsconfig.json` has `strict`, `noUnusedLocals` and `noU
 
 Keep the npm `@tauri-apps/plugin-*` packages on the same minor version as their Rust crates (`Cargo.lock`); the Tauri CLI warns on a mismatch. That is why `@tauri-apps/plugin-dialog` uses a `~` range.
 
+Releases: `.github/workflows/release.yml` runs on a pushed `v*` tag (or manually), checks the tag against `version` in `src-tauri/tauri.conf.json`, builds on macOS (universal, ad-hoc signed), Ubuntu 22.04 and Windows with `tauri-apps/tauri-action`, uploads to a draft release, and publishes it once all three succeed. pnpm is pinned there (`version: 12`), since `package.json` has no `packageManager` field.
+
 ## Architecture
 
 Two processes communicating over Tauri IPC:

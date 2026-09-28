@@ -38,3 +38,20 @@ cargo test -- --ignored    # also runs a test against a real bd workspace
 ```
 
 Keyboard: `/` focuses the filter, `Esc` closes the details panel, `⌘R` reloads, `⌘O` opens a folder.
+
+## Releasing
+
+The Release workflow (`.github/workflows/release.yml`) builds installers for macOS (a universal
+`.dmg`), Linux (`.deb`, `.rpm`, `.AppImage`) and Windows (`.msi`, setup `.exe`) and publishes them
+as a GitHub release.
+
+1. Set the new version in `src-tauri/tauri.conf.json`, which is where the installers take it from,
+   and commit. Use a plain `X.Y.Z`: the `.msi` build rejects labels such as `-beta`.
+2. Push a matching tag, `git tag v0.2.0 && git push origin v0.2.0`, or run the Release workflow
+   from the Actions tab, which tags the commit it builds.
+
+The release stays a draft until all three builds succeed; re-running the workflow reuses the draft.
+
+The installers are not signed with a developer certificate. The macOS app is ad-hoc signed and not
+notarized, so macOS blocks the first launch: allow it under System Settings → Privacy & Security →
+Open Anyway. On Windows, SmartScreen warns once: choose More info → Run anyway.
