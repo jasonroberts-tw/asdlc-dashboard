@@ -13,9 +13,11 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "asdlc-dashboard",
-        "width": 800,
-        "height": 600
+        "title": "ASDLC Dashboard",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 720,
+        "minHeight": 480
       }
     ],
     "security": {

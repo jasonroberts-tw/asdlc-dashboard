@@ -4,40 +4,61 @@
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
+    <title>ASDLC Dashboard</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
 
   <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
-
-      <div class="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/src/assets/vite.svg" class="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img
-            src="/src/assets/tauri.svg"
-            class="logo tauri"
-            alt="Tauri logo"
-          />
-        </a>
-        <a href="https://www.typescriptlang.org/docs" target="_blank">
-          <img
-            src="/src/assets/typescript.svg"
-            class="logo typescript"
-            alt="typescript logo"
-          />
-        </a>
+    <header id="toolbar" class="toolbar">
+      <div class="toolbar-row">
+        <div class="workspace">
+          <button type="button" id="open-folder" class="button" data-action="open-folder" title="Open a folder (⌘O)">
+            Open…
+          </button>
+          <select id="recent" aria-label="Recent folders" hidden></select>
+          <span id="workspace-path" class="workspace-path"></span>
+        </div>
+        <div class="sync" title="The board reloads by itself when bd writes to this database">
+          <span id="sync-status" class="sync-status" aria-live="polite"></span>
+          <button type="button" id="refresh" class="icon-button" data-action="refresh" aria-label="Refresh" title="Refresh (⌘R)"></button>
+        </div>
       </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
-
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
+      <form id="filters" class="filters" role="search">
+        <label class="search">
+          <span id="search-icon" class="search-icon"></span>
+          <input id="search" type="search" placeholder="Filter by title, ID, label or assignee" aria-label="Filter issues (press / to focus)" autocomplete="off" spellcheck="false" />
+        </label>
+        <select id="filter-type" aria-label="Type"><option value="">All types</option></select>
+        <select id="filter-priority" aria-label="Priority">
+          <option value="">Any priority</option>
+          <option value="0">P0</option>
+          <option value="1">P1</option>
+          <option value="2">P2</option>
+          <option value="3">P3</option>
+          <option value="4">P4</option>
+        </select>
+        <select id="filter-assignee" aria-label="Assignee"><option value="">Anyone</option></select>
+        <select id="filter-epic" class="epic-select" aria-label="Epic"><option value="">All epics</option></select>
+        <select id="filter-done" aria-label="Closed issues shown">
+          <option value="1">Done today</option>
+          <option value="7">Done this week</option>
+          <option value="30">Done in 30 days</option>
+          <option value="0">All done</option>
+        </select>
+        <button type="button" id="clear-filters" class="link-button" data-action="clear-filters" hidden>Clear filters</button>
       </form>
-      <p id="greet-msg"></p>
-    </main>
+    </header>
+
+    <div id="banner" class="banner" role="alert" hidden></div>
+
+    <main id="board" class="board" aria-label="Issues by status"></main>
+
+    <div id="empty" class="empty-state" hidden>
+      <h1>Open a beads database</h1>
+      <p>Choose a folder that contains a <code>.beads</code> directory. The board reads it with <code>bd</code> and never changes it.</p>
+      <button type="button" id="empty-open" class="button primary" data-action="open-folder">Open folder…</button>
+    </div>
+
+    <aside id="detail" class="detail" aria-label="Issue details" hidden></aside>
   </body>
 </html>

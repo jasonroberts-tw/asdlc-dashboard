@@ -1,22 +1,623 @@
-import { invoke } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  changeMarker,
+  loadBoard,
+  loadIssue,
+  openWorkspace,
+  type BoardData,
+  type Issue,
+  type StatusCategory,
+  type Workspace,
+} from "./beads";
+import {
+  buildColumns,
+  childProgress,
+  DEFAULT_FILTERS,
+  filterOptions,
+  UNASSIGNED,
+  type Filters,
+  type Progress,
+} from "./board";
+import { renderDetail, type DetailContext, type DetailState } from "./detail";
+import { el, icon } from "./dom";
+import { issueRefPattern, type IssueRefs } from "./markdown";
+import { renderColumns } from "./render";
 
-let greetInputEl: HTMLInputElement | null;
-let greetMsgEl: HTMLElement | null;
+/** How often to look for a write by bd; the check only reads a file's modification time. */
+const WATCH_INTERVAL_MS = 2_000;
+/** Reload at least this often, for changes that leave no marker, such as a Dolt pull. */
+const FULL_REFRESH_MS = 60_000;
+/** Reload when the window regains focus if the board is older than this. */
+const FOCUS_REFRESH_MS = 5_000;
+const MAX_RECENTS = 8;
+const RECENTS_KEY = "recent-workspaces";
+const DONE_DAYS_KEY = "done-days";
+/** The choices in the "Done" filter; 0 shows every closed issue. */
+const DONE_DAY_CHOICES = [1, 7, 30, 0];
 
-async function greet() {
-  if (greetMsgEl && greetInputEl) {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsgEl.textContent = await invoke("greet", {
-      name: greetInputEl.value,
+interface State {
+  root: string | null;
+  workspace: Workspace | null;
+  data: BoardData | null;
+  /** The JSON of `data`, to skip work when a reload returns the same issues. */
+  signature: string;
+  issuesById: Map<string, Issue>;
+  progress: Map<string, Progress>;
+  refs: IssueRefs | null;
+  filters: Filters;
+  selectedId: string | null;
+  detail: DetailState | null;
+  marker: number | null;
+  checkedAt: number;
+  /** Bumped when a workspace opens, so answers about the previous one are dropped. */
+  generation: number;
+}
+
+const state: State = {
+  root: null,
+  workspace: null,
+  data: null,
+  signature: "",
+  issuesById: new Map(),
+  progress: new Map(),
+  refs: null,
+  filters: { ...DEFAULT_FILTERS, doneDays: storedDoneDays() },
+  selectedId: null,
+  detail: null,
+  marker: null,
+  checkedAt: 0,
+  generation: 0,
+};
+
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const boardEl = $<HTMLElement>("board");
+const emptyEl = $<HTMLElement>("empty");
+const detailEl = $<HTMLElement>("detail");
+const bannerEl = $<HTMLElement>("banner");
+const recentSelect = $<HTMLSelectElement>("recent");
+const pathEl = $<HTMLElement>("workspace-path");
+const syncEl = $<HTMLElement>("sync-status");
+const refreshButton = $<HTMLButtonElement>("refresh");
+const filtersForm = $<HTMLFormElement>("filters");
+const searchInput = $<HTMLInputElement>("search");
+const typeSelect = $<HTMLSelectElement>("filter-type");
+const prioritySelect = $<HTMLSelectElement>("filter-priority");
+const assigneeSelect = $<HTMLSelectElement>("filter-assignee");
+const epicSelect = $<HTMLSelectElement>("filter-epic");
+const doneSelect = $<HTMLSelectElement>("filter-done");
+const clearFiltersButton = $<HTMLButtonElement>("clear-filters");
+
+// Workspace lifecycle
+
+async function chooseFolder(): Promise<void> {
+  let picked: string | null;
+  try {
+    picked = await open({
+      directory: true,
+      multiple: false,
+      title: "Open a folder with a beads database",
+      defaultPath: state.root ?? undefined,
     });
+  } catch (error) {
+    showBanner(`Couldn't show the folder picker: ${message(error)}`);
+    return;
+  }
+  if (typeof picked === "string") await openFolder(picked);
+}
+
+async function openFolder(root: string): Promise<void> {
+  const generation = ++state.generation;
+  setSync("Opening…", true);
+  try {
+    const workspace = await openWorkspace(root);
+    if (generation !== state.generation) return;
+    const pattern = issueRefPattern(workspace.prefix);
+    Object.assign(state, {
+      root,
+      workspace,
+      data: null,
+      signature: "",
+      issuesById: new Map(),
+      progress: new Map(),
+      refs: pattern ? { pattern, isKnown: (id: string) => state.issuesById.has(id) } : null,
+      filters: { ...DEFAULT_FILTERS, doneDays: state.filters.doneDays },
+      marker: null,
+    });
+    closeDetail();
+    writeFilterControls();
+    rememberRecent(root);
+    pathEl.textContent = root;
+    pathEl.title = root;
+    showBanner(null);
+    emptyEl.hidden = true;
+    boardEl.hidden = false;
+    boardEl.replaceChildren(el("p", { class: "board-message" }, "Loading issues…"));
+    await refresh();
+  } catch (error) {
+    if (generation !== state.generation) return;
+    setSync("");
+    renderRecents();
+    showBanner(`Couldn't open ${root}: ${message(error)}`);
+    if (!state.workspace) showEmpty();
   }
 }
 
-window.addEventListener("DOMContentLoaded", () => {
-  greetInputEl = document.querySelector("#greet-input");
-  greetMsgEl = document.querySelector("#greet-msg");
-  document.querySelector("#greet-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    greet();
-  });
+let pending: { generation: number; promise: Promise<void> } | null = null;
+
+/** Reloads the board, joining a reload of the same workspace that is already running. */
+function refresh(): Promise<void> {
+  if (pending?.generation !== state.generation) {
+    const generation = state.generation;
+    const promise = reload(generation).finally(() => {
+      if (pending?.promise === promise) pending = null;
+    });
+    pending = { generation, promise };
+  }
+  return pending.promise;
+}
+
+async function reload(generation: number): Promise<void> {
+  const { root, workspace } = state;
+  if (!root || !workspace) return;
+  setSync("Refreshing…", true);
+  try {
+    // Read the marker first: a write that lands during the load moves it again.
+    const marker = await changeMarker(workspace.beads_dir);
+    state.marker = marker;
+    state.checkedAt = Date.now();
+    const data = await loadBoard(root);
+    if (generation !== state.generation) return;
+    applyData(data);
+    showBanner(null);
+    setSync(`Updated ${new Date().toLocaleTimeString()}`);
+  } catch (error) {
+    if (generation !== state.generation) return;
+    state.checkedAt = Date.now();
+    showBanner(`Couldn't load issues: ${message(error)}`, true);
+    setSync("Refresh failed");
+  }
+}
+
+function applyData(data: BoardData): void {
+  const signature = JSON.stringify(data);
+  const changed = signature !== state.signature;
+  if (changed) {
+    state.data = data;
+    state.signature = signature;
+    state.issuesById = new Map(data.issues.map((issue) => [issue.id, issue]));
+    state.progress = childProgress(data.issues, categories());
+    updateFilterOptions();
+  }
+  // Re-render even when nothing changed, so relative times stay current.
+  renderBoard();
+  if (changed && state.selectedId) {
+    renderDetailPanel();
+    void fetchDetail(state.selectedId);
+  }
+}
+
+function showEmpty(): void {
+  boardEl.hidden = true;
+  boardEl.replaceChildren();
+  emptyEl.hidden = false;
+}
+
+/** Vite also serves the page to ordinary browsers, which have no backend to run bd. */
+function showBrowserOnly(): void {
+  $<HTMLElement>("toolbar").hidden = true;
+  emptyEl.replaceChildren(
+    el("h1", {}, "Open this in the app window"),
+    el(
+      "p",
+      {},
+      "This page is the ASDLC Dashboard's frontend. It reads beads through the desktop app, " +
+        "so it can't load issues in a browser. Run ",
+      el("code", {}, "pnpm tauri dev"),
+      " and use the window it opens.",
+    ),
+  );
+  showEmpty();
+}
+
+// Board
+
+function categories(): Record<string, StatusCategory> {
+  return state.workspace?.status_categories ?? {};
+}
+
+function renderBoard(): void {
+  if (!state.data) return;
+  const now = new Date();
+  renderColumns(
+    boardEl,
+    buildColumns(state.data, categories(), state.filters, now),
+    {
+      categories: categories(),
+      blockedBy: state.data.blocked_by,
+      progress: state.progress,
+      selectedId: state.selectedId,
+      now,
+    },
+    state.filters.doneDays,
+  );
+  const { text, type, priority, assignee, epic } = state.filters;
+  clearFiltersButton.hidden = !(text || type || priority || assignee || epic);
+}
+
+function markSelected(): void {
+  for (const card of boardEl.querySelectorAll<HTMLElement>(".card")) {
+    card.classList.toggle("selected", card.dataset.issue === state.selectedId);
+  }
+}
+
+// Filters
+
+function readFilterControls(): void {
+  state.filters = {
+    text: searchInput.value,
+    type: typeSelect.value,
+    priority: prioritySelect.value,
+    assignee: assigneeSelect.value,
+    epic: epicSelect.value,
+    doneDays: Number(doneSelect.value),
+  };
+}
+
+function writeFilterControls(): void {
+  searchInput.value = state.filters.text;
+  typeSelect.value = state.filters.type;
+  prioritySelect.value = state.filters.priority;
+  assigneeSelect.value = state.filters.assignee;
+  epicSelect.value = state.filters.epic;
+  doneSelect.value = String(state.filters.doneDays);
+}
+
+function updateFilterOptions(): void {
+  const options = filterOptions(state.data?.issues ?? [], categories());
+  setOptions(typeSelect, [["", "All types"], ...options.types.map(same)]);
+  setOptions(assigneeSelect, [
+    ["", "Anyone"],
+    [UNASSIGNED, "Unassigned"],
+    ...options.assignees.map(same),
+  ]);
+  setOptions(epicSelect, [
+    ["", "All epics"],
+    ...options.epics.map((epic): [string, string] => [
+      epic.id,
+      `${categories()[epic.status] === "done" ? "✓ " : ""}${epic.id} · ${truncate(epic.title, 60)}`,
+    ]),
+  ]);
+  // A selected option that no longer exists falls back to "all".
+  readFilterControls();
+}
+
+function setOptions(select: HTMLSelectElement, options: [value: string, label: string][]): void {
+  const value = select.value;
+  select.replaceChildren(...options.map(([v, label]) => el("option", { value: v }, label)));
+  select.value = options.some(([v]) => v === value) ? value : "";
+}
+
+function onFiltersChanged(): void {
+  readFilterControls();
+  storeDoneDays(state.filters.doneDays);
+  renderBoard();
+}
+
+function clearFilters(): void {
+  state.filters = { ...DEFAULT_FILTERS, doneDays: state.filters.doneDays };
+  writeFilterControls();
+  renderBoard();
+}
+
+// Detail panel
+
+async function selectIssue(id: string): Promise<void> {
+  if (!state.root) return;
+  const switching = id !== state.selectedId;
+  state.selectedId = id;
+  if (switching || state.detail?.status !== "loaded") state.detail = { status: "loading" };
+  markSelected();
+  renderDetailPanel(switching);
+  await fetchDetail(id);
+}
+
+async function fetchDetail(id: string): Promise<void> {
+  const { root, generation } = state;
+  if (!root) return;
+  let next: DetailState;
+  try {
+    next = { status: "loaded", detail: await loadIssue(root, id) };
+  } catch (error) {
+    next = { status: "failed", error: message(error) };
+  }
+  if (state.selectedId !== id || state.generation !== generation) return;
+  // Keep showing what was loaded before if a background reload fails.
+  if (next.status === "failed" && state.detail?.status === "loaded") return;
+  state.detail = next;
+  renderDetailPanel();
+}
+
+function renderDetailPanel(resetScroll = false): void {
+  const id = state.selectedId;
+  if (!id || !state.detail) return;
+  // An issue the list leaves out (another workspace's, for example) is drawn from bd show alone.
+  const loaded = state.detail.status === "loaded" ? state.detail.detail : null;
+  const issue =
+    state.issuesById.get(id) ?? (loaded ? { ...loaded, dependencies: undefined } : null);
+  const previousBody = detailEl.querySelector<HTMLElement>(".detail-body");
+  const scrollTop = resetScroll ? 0 : (previousBody?.scrollTop ?? 0);
+  detailEl.replaceChildren(
+    ...(issue
+      ? renderDetail(issue, state.detail, detailContext())
+      : [el("p", { class: "board-message" }, state.detail.status === "failed" ? state.detail.error : "Loading…")]),
+  );
+  detailEl.hidden = false;
+  const body = detailEl.querySelector<HTMLElement>(".detail-body");
+  if (body) body.scrollTop = scrollTop;
+}
+
+function detailContext(): DetailContext {
+  return {
+    issuesById: state.issuesById,
+    blockedBy: state.data?.blocked_by ?? {},
+    progress: state.progress,
+    categories: categories(),
+    refs: state.refs,
+    now: new Date(),
+  };
+}
+
+function closeDetail(): void {
+  const id = state.selectedId;
+  state.selectedId = null;
+  state.detail = null;
+  detailEl.hidden = true;
+  detailEl.replaceChildren();
+  markSelected();
+  if (id) boardEl.querySelector<HTMLElement>(`.card[data-issue="${CSS.escape(id)}"]`)?.focus();
+}
+
+async function copyId(button: HTMLElement): Promise<void> {
+  const id = button.dataset.id ?? "";
+  const label = button.firstChild;
+  try {
+    await navigator.clipboard.writeText(id);
+    if (label) label.textContent = "Copied";
+  } catch {
+    if (label) label.textContent = "Copy failed";
+  }
+  setTimeout(() => {
+    if (label) label.textContent = id;
+  }, 1200);
+}
+
+// Status line
+
+function setSync(text: string, busy = false): void {
+  syncEl.textContent = text;
+  refreshButton.classList.toggle("spinning", busy);
+}
+
+function showBanner(text: string | null, retry = false): void {
+  bannerEl.hidden = text === null;
+  if (text === null) return;
+  const parts: Node[] = [el("span", { class: "banner-text" }, text)];
+  if (retry) {
+    parts.push(el("button", { type: "button", class: "button", "data-action": "refresh" }, "Retry"));
+  }
+  parts.push(
+    el(
+      "button",
+      { type: "button", class: "icon-button", "data-action": "dismiss-banner", "aria-label": "Dismiss" },
+      icon("close"),
+    ),
+  );
+  bannerEl.replaceChildren(...parts);
+}
+
+// Recent workspaces
+
+function recents(): string[] {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]");
+    return Array.isArray(stored) ? stored.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecent(root: string): void {
+  const next = [root, ...recents().filter((path) => path !== root)].slice(0, MAX_RECENTS);
+  try {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+  } catch {
+    // Without storage the app just won't remember the folder.
+  }
+  renderRecents();
+}
+
+function renderRecents(): void {
+  const paths = recents();
+  const names = paths.map(folderName);
+  recentSelect.replaceChildren(
+    ...(state.root ? [] : [el("option", { value: "", disabled: true }, "Recent folders")]),
+    ...paths.map((path, i) =>
+      el(
+        "option",
+        { value: path, title: path },
+        // Two folders with the same name are told apart by their parent.
+        names.indexOf(names[i]) !== names.lastIndexOf(names[i]) ? parentAndName(path) : names[i],
+      ),
+    ),
+  );
+  recentSelect.value = state.root ?? "";
+  recentSelect.hidden = paths.length === 0;
+}
+
+function folderName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+function parentAndName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).slice(-2).join("/");
+}
+
+// Preferences and helpers
+
+function storedDoneDays(): number {
+  try {
+    const stored = localStorage.getItem(DONE_DAYS_KEY);
+    return stored !== null && DONE_DAY_CHOICES.includes(Number(stored))
+      ? Number(stored)
+      : DEFAULT_FILTERS.doneDays;
+  } catch {
+    return DEFAULT_FILTERS.doneDays;
+  }
+}
+
+function storeDoneDays(days: number): void {
+  try {
+    localStorage.setItem(DONE_DAYS_KEY, String(days));
+  } catch {
+    // Not remembering the preference is harmless.
+  }
+}
+
+function same(value: string): [string, string] {
+  return [value, value];
+}
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLSelectElement ||
+    target instanceof HTMLTextAreaElement
+  );
+}
+
+// Events
+
+document.addEventListener("click", (event) => {
+  const target = event.target as Element;
+  const action = target.closest<HTMLElement>("[data-action]");
+  if (action) {
+    event.preventDefault();
+    switch (action.dataset.action) {
+      case "open-folder":
+        void chooseFolder();
+        break;
+      case "refresh":
+        void refresh();
+        break;
+      case "close-detail":
+        closeDetail();
+        break;
+      case "copy-id":
+        void copyId(action);
+        break;
+      case "clear-filters":
+        clearFilters();
+        break;
+      case "dismiss-banner":
+        showBanner(null);
+        break;
+    }
+    return;
+  }
+  const issueTarget = target.closest<HTMLElement>("[data-issue]");
+  if (issueTarget) {
+    event.preventDefault();
+    void selectIssue(issueTarget.dataset.issue!);
+    return;
+  }
+  // Links in issue text open in the browser, never inside the app's window.
+  const link = target.closest<HTMLAnchorElement>("a[href]");
+  if (link) {
+    event.preventDefault();
+    const href = link.getAttribute("href") ?? "";
+    if (/^(https?:|mailto:)/i.test(href)) void openUrl(href);
+  }
 });
+
+document.addEventListener("keydown", (event) => {
+  const key = event.key.toLowerCase();
+  if ((event.metaKey || event.ctrlKey) && (key === "r" || key === "o")) {
+    event.preventDefault();
+    void (key === "r" ? refresh() : chooseFolder());
+    return;
+  }
+  if (event.key === "Escape") {
+    if (event.target === searchInput && searchInput.value) {
+      searchInput.value = "";
+      onFiltersChanged();
+    } else if (state.selectedId) {
+      closeDetail();
+    } else if (isTyping(event.target)) {
+      (event.target as HTMLElement).blur();
+    }
+    return;
+  }
+  if (isTyping(event.target)) return;
+  if (event.key === "/") {
+    event.preventDefault();
+    searchInput.focus();
+    searchInput.select();
+    return;
+  }
+  const card = (event.target as Element).closest?.<HTMLElement>(".card");
+  if (card && (event.key === "Enter" || event.key === " ")) {
+    event.preventDefault();
+    void selectIssue(card.dataset.issue!);
+  }
+});
+
+filtersForm.addEventListener("input", onFiltersChanged);
+filtersForm.addEventListener("submit", (event) => event.preventDefault());
+recentSelect.addEventListener("change", () => {
+  if (recentSelect.value && recentSelect.value !== state.root) void openFolder(recentSelect.value);
+});
+
+setInterval(async () => {
+  const { workspace } = state;
+  if (!workspace || pending || document.hidden) return;
+  if (Date.now() - state.checkedAt > FULL_REFRESH_MS) {
+    void refresh();
+    return;
+  }
+  try {
+    const marker = await changeMarker(workspace.beads_dir);
+    if (workspace === state.workspace && marker !== state.marker) void refresh();
+  } catch {
+    // The next tick tries again.
+  }
+}, WATCH_INTERVAL_MS);
+
+window.addEventListener("focus", () => {
+  if (state.workspace && Date.now() - state.checkedAt > FOCUS_REFRESH_MS) void refresh();
+});
+
+// Start
+
+$<HTMLButtonElement>("open-folder").prepend(icon("folder"));
+$<HTMLButtonElement>("empty-open").prepend(icon("folder"));
+refreshButton.append(icon("refresh"));
+$<HTMLElement>("search-icon").append(icon("search"));
+writeFilterControls();
+if (!isTauri()) {
+  showBrowserOnly();
+} else {
+  renderRecents();
+  const [lastFolder] = recents();
+  if (lastFolder) void openFolder(lastFolder);
+  else showEmpty();
+}
