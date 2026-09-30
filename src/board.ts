@@ -25,6 +25,7 @@ export interface Filters {
   type: string;
   priority: string;
   assignee: string;
+  label: string;
   /** Show only this issue and its descendants. */
   epic: string;
   /** Hide issues closed longer ago than this; 0 shows every closed issue. */
@@ -36,6 +37,7 @@ export const DEFAULT_FILTERS: Filters = {
   type: "",
   priority: "",
   assignee: "",
+  label: "",
   epic: "",
   doneDays: 7,
 };
@@ -113,6 +115,7 @@ function matchesFilters(issue: Issue, filters: Filters, terms: string[]): boolea
     const assignee = issue.assignee ?? UNASSIGNED;
     if (assignee !== filters.assignee) return false;
   }
+  if (filters.label && !issue.labels?.includes(filters.label)) return false;
   if (terms.length === 0) return true;
   const haystack = [
     issue.id,
@@ -166,6 +169,8 @@ export function childProgress(
 export interface FilterOptions {
   types: string[];
   assignees: string[];
+  /** Labels on issues that aren't closed. */
+  labels: string[];
   /** Open epics first, then closed ones. */
   epics: Issue[];
 }
@@ -174,13 +179,15 @@ export function filterOptions(
   issues: Issue[],
   categories: Record<string, StatusCategory>,
 ): FilterOptions {
+  const isDone = (issue: Issue) => categories[issue.status] === "done";
   const types = new Set<string>();
   const assignees = new Set<string>();
+  const labels = new Set<string>();
   for (const issue of issues) {
     types.add(issue.issue_type);
     if (issue.assignee) assignees.add(issue.assignee);
+    if (!isDone(issue)) for (const label of issue.labels ?? []) labels.add(label);
   }
-  const isDone = (issue: Issue) => categories[issue.status] === "done";
   const epics = issues
     .filter((issue) => issue.issue_type === "epic")
     .sort(
@@ -192,6 +199,7 @@ export function filterOptions(
   return {
     types: [...types].sort(),
     assignees: [...assignees].sort((a, b) => a.localeCompare(b)),
+    labels: [...labels].sort((a, b) => a.localeCompare(b)),
     epics,
   };
 }

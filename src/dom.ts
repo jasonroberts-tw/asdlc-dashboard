@@ -36,6 +36,7 @@ const ICONS = {
   comment: "M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z",
   copy: "M5.5 5.5h7v7h-7zM3.5 10.5v-7h7",
   folder: "M1.5 4.5v8a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H7.5L6 3.5H2.5a1 1 0 0 0-1 1z",
+  "new-window": "M2.5 2.5h11v11h-11zM2.5 5.5h11M8 7.5v4M6 9.5h4",
   refresh: "M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3",
   search: "M7 2.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9zM10.3 10.3l3.2 3.2",
 } as const;

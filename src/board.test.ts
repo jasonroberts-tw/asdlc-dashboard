@@ -129,10 +129,10 @@ describe("buildColumns", () => {
     expect(search("x-3")).toEqual(["x-3"]);
   });
 
-  it("filters by type, priority and assignee", () => {
+  it("filters by type, priority, assignee and label", () => {
     const data: BoardData = {
       issues: [
-        issue("bug", { issue_type: "bug", priority: 0, assignee: "Ada" }),
+        issue("bug", { issue_type: "bug", priority: 0, assignee: "Ada", labels: ["ui", "auth"] }),
         issue("task", { priority: 2 }),
       ],
       blocked_by: {},
@@ -141,6 +141,8 @@ describe("buildColumns", () => {
     expect(columnIds(data, { ...DEFAULT_FILTERS, priority: "2" }).ready).toEqual(["task"]);
     expect(columnIds(data, { ...DEFAULT_FILTERS, assignee: "Ada" }).ready).toEqual(["bug"]);
     expect(columnIds(data, { ...DEFAULT_FILTERS, assignee: UNASSIGNED }).ready).toEqual(["task"]);
+    expect(columnIds(data, { ...DEFAULT_FILTERS, label: "auth" }).ready).toEqual(["bug"]);
+    expect(columnIds(data, { ...DEFAULT_FILTERS, label: "au" }).ready).toEqual([]);
   });
 
   it("limits the board to an epic and everything under it", () => {
@@ -184,19 +186,20 @@ describe("childProgress", () => {
 });
 
 describe("filterOptions", () => {
-  it("lists types, assignees and epics with open epics first", () => {
+  it("lists types, assignees, open issues' labels and epics with open epics first", () => {
     const options = filterOptions(
       [
-        issue("e-closed", { issue_type: "epic", status: "closed", priority: 0 }),
+        issue("e-closed", { issue_type: "epic", status: "closed", priority: 0, labels: ["old"] }),
         issue("e-low", { issue_type: "epic", priority: 3 }),
         issue("e-high", { issue_type: "epic", priority: 1 }),
-        issue("t", { assignee: "Zed" }),
-        issue("u", { issue_type: "bug", assignee: "Ada" }),
+        issue("t", { assignee: "Zed", labels: ["ui", "Backend"] }),
+        issue("u", { issue_type: "bug", assignee: "Ada", labels: ["ui"] }),
       ],
       categories,
     );
     expect(options.types).toEqual(["bug", "epic", "task"]);
     expect(options.assignees).toEqual(["Ada", "Zed"]);
+    expect(options.labels).toEqual(["Backend", "ui"]);
     expect(options.epics.map((e) => e.id)).toEqual(["e-high", "e-low", "e-closed"]);
   });
 });

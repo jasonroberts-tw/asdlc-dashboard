@@ -21,6 +21,7 @@
         <div class="sync" title="The board reloads by itself when bd writes to this database">
           <span id="sync-status" class="sync-status" aria-live="polite"></span>
           <button type="button" id="refresh" class="icon-button" data-action="refresh" aria-label="Refresh" title="Refresh (⌘R)"></button>
+          <button type="button" id="new-window" class="icon-button" data-action="new-window" aria-label="New window" title="New window (⌘N)"></button>
         </div>
       </div>
       <form id="filters" class="filters" role="search">
@@ -38,6 +39,7 @@
           <option value="4">P4</option>
         </select>
         <select id="filter-assignee" aria-label="Assignee"><option value="">Anyone</option></select>
+        <select id="filter-label" aria-label="Label"><option value="">All labels</option></select>
         <select id="filter-epic" class="epic-select" aria-label="Epic"><option value="">All epics</option></select>
         <select id="filter-done" aria-label="Closed issues shown">
           <option value="1">Done today</option>

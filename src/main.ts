@@ -1,4 +1,6 @@
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -36,6 +38,10 @@ const RECENTS_KEY = "recent-workspaces";
 const DONE_DAYS_KEY = "done-days";
 /** The choices in the "Done" filter; 0 shows every closed issue. */
 const DONE_DAY_CHOICES = [1, 7, 30, 0];
+const ZOOM_KEY = "zoom";
+/** The steps ⌘+ and ⌘− move through, as in a browser. */
+const ZOOM_LEVELS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+const APP_TITLE = "ASDLC Dashboard";
 
 interface State {
   root: string | null;
@@ -53,6 +59,8 @@ interface State {
   checkedAt: number;
   /** Bumped when a workspace opens, so answers about the previous one are dropped. */
   generation: number;
+  /** Page zoom, one of ZOOM_LEVELS. Every window shares it. */
+  zoom: number;
 }
 
 const state: State = {
@@ -69,6 +77,7 @@ const state: State = {
   marker: null,
   checkedAt: 0,
   generation: 0,
+  zoom: storedZoom(),
 };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -85,6 +94,7 @@ const searchInput = $<HTMLInputElement>("search");
 const typeSelect = $<HTMLSelectElement>("filter-type");
 const prioritySelect = $<HTMLSelectElement>("filter-priority");
 const assigneeSelect = $<HTMLSelectElement>("filter-assignee");
+const labelSelect = $<HTMLSelectElement>("filter-label");
 const epicSelect = $<HTMLSelectElement>("filter-epic");
 const doneSelect = $<HTMLSelectElement>("filter-done");
 const clearFiltersButton = $<HTMLButtonElement>("clear-filters");
@@ -130,6 +140,8 @@ async function openFolder(root: string): Promise<void> {
     rememberRecent(root);
     pathEl.textContent = root;
     pathEl.title = root;
+    // Tells windows apart in the Window menu and the app switcher.
+    void getCurrentWindow().setTitle(`${folderName(root)} — ${APP_TITLE}`);
     showBanner(null);
     emptyEl.hidden = true;
     boardEl.hidden = false;
@@ -242,8 +254,8 @@ function renderBoard(): void {
     },
     state.filters.doneDays,
   );
-  const { text, type, priority, assignee, epic } = state.filters;
-  clearFiltersButton.hidden = !(text || type || priority || assignee || epic);
+  const { text, type, priority, assignee, label, epic } = state.filters;
+  clearFiltersButton.hidden = !(text || type || priority || assignee || label || epic);
 }
 
 function markSelected(): void {
@@ -260,6 +272,7 @@ function readFilterControls(): void {
     type: typeSelect.value,
     priority: prioritySelect.value,
     assignee: assigneeSelect.value,
+    label: labelSelect.value,
     epic: epicSelect.value,
     doneDays: Number(doneSelect.value),
   };
@@ -270,6 +283,7 @@ function writeFilterControls(): void {
   typeSelect.value = state.filters.type;
   prioritySelect.value = state.filters.priority;
   assigneeSelect.value = state.filters.assignee;
+  labelSelect.value = state.filters.label;
   epicSelect.value = state.filters.epic;
   doneSelect.value = String(state.filters.doneDays);
 }
@@ -282,6 +296,7 @@ function updateFilterOptions(): void {
     [UNASSIGNED, "Unassigned"],
     ...options.assignees.map(same),
   ]);
+  setOptions(labelSelect, [["", "All labels"], ...options.labels.map(same)]);
   setOptions(epicSelect, [
     ["", "All epics"],
     ...options.epics.map((epic): [string, string] => [
@@ -369,14 +384,32 @@ function detailContext(): DetailContext {
   };
 }
 
-function closeDetail(): void {
+function closeDetail(refocusCard = true): void {
   const id = state.selectedId;
   state.selectedId = null;
   state.detail = null;
   detailEl.hidden = true;
   detailEl.replaceChildren();
   markSelected();
-  if (id) boardEl.querySelector<HTMLElement>(`.card[data-issue="${CSS.escape(id)}"]`)?.focus();
+  if (id && refocusCard) {
+    boardEl.querySelector<HTMLElement>(`.card[data-issue="${CSS.escape(id)}"]`)?.focus();
+  }
+}
+
+/** Elements that do something when clicked, so a click on them leaves the details panel open. */
+const CLICKABLE = "a, button, input, select, textarea, label, [data-action], [data-issue]";
+
+/**
+ * Whether a click here closes the details panel: outside it, and on nothing clickable.
+ * An element a reload has since replaced can't be placed, so it keeps the panel open.
+ */
+function closesDetail(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.isConnected &&
+    !detailEl.contains(target) &&
+    !target.closest(CLICKABLE)
+  );
 }
 
 async function copyId(button: HTMLElement): Promise<void> {
@@ -391,6 +424,36 @@ async function copyId(button: HTMLElement): Promise<void> {
   setTimeout(() => {
     if (label) label.textContent = id;
   }, 1200);
+}
+
+// Windows and zoom
+
+async function newWindow(): Promise<void> {
+  try {
+    await invoke("new_window");
+  } catch (error) {
+    showBanner(`Couldn't open a new window: ${message(error)}`);
+  }
+}
+
+function zoomBy(steps: number): void {
+  const index = ZOOM_LEVELS.indexOf(state.zoom) + steps;
+  setZoom(ZOOM_LEVELS[Math.min(Math.max(index, 0), ZOOM_LEVELS.length - 1)]);
+}
+
+function setZoom(level: number): void {
+  if (level === state.zoom) return;
+  state.zoom = level;
+  applyZoom();
+  try {
+    localStorage.setItem(ZOOM_KEY, String(level));
+  } catch {
+    // The zoom just won't outlast the window.
+  }
+}
+
+function applyZoom(): void {
+  void getCurrentWebview().setZoom(state.zoom);
 }
 
 // Status line
@@ -477,6 +540,15 @@ function storedDoneDays(): number {
   }
 }
 
+function storedZoom(): number {
+  try {
+    const stored = Number(localStorage.getItem(ZOOM_KEY));
+    return ZOOM_LEVELS.includes(stored) ? stored : 1;
+  } catch {
+    return 1;
+  }
+}
+
 function storeDoneDays(days: number): void {
   try {
     localStorage.setItem(DONE_DAYS_KEY, String(days));
@@ -507,6 +579,12 @@ function isTyping(target: EventTarget | null): boolean {
 
 // Events
 
+/** Where the latest click began. */
+let pressTarget: EventTarget | null = null;
+document.addEventListener("pointerdown", (event) => {
+  pressTarget = event.target;
+});
+
 document.addEventListener("click", (event) => {
   const target = event.target as Element;
   const action = target.closest<HTMLElement>("[data-action]");
@@ -518,6 +596,9 @@ document.addEventListener("click", (event) => {
         break;
       case "refresh":
         void refresh();
+        break;
+      case "new-window":
+        void newWindow();
         break;
       case "close-detail":
         closeDetail();
@@ -546,14 +627,29 @@ document.addEventListener("click", (event) => {
     event.preventDefault();
     const href = link.getAttribute("href") ?? "";
     if (/^(https?:|mailto:)/i.test(href)) void openUrl(href);
+    return;
   }
+  // Checking where the press began too keeps a drag out of the panel, such as a text
+  // selection, from closing it. The mouse user's focus stays put, so no card takes it.
+  if (state.selectedId && closesDetail(target) && closesDetail(pressTarget)) closeDetail(false);
 });
 
+/** ⌘ (or Ctrl) shortcuts, keyed by `event.key`. */
+const SHORTCUTS = new Map<string, () => void>([
+  ["r", () => void refresh()],
+  ["o", () => void chooseFolder()],
+  ["n", () => void newWindow()],
+  ["=", () => zoomBy(1)],
+  ["+", () => zoomBy(1)],
+  ["-", () => zoomBy(-1)],
+  ["0", () => setZoom(1)],
+]);
+
 document.addEventListener("keydown", (event) => {
-  const key = event.key.toLowerCase();
-  if ((event.metaKey || event.ctrlKey) && (key === "r" || key === "o")) {
+  const shortcut = (event.metaKey || event.ctrlKey) && SHORTCUTS.get(event.key.toLowerCase());
+  if (shortcut) {
     event.preventDefault();
-    void (key === "r" ? refresh() : chooseFolder());
+    shortcut();
     return;
   }
   if (event.key === "Escape") {
@@ -606,18 +702,31 @@ window.addEventListener("focus", () => {
   if (state.workspace && Date.now() - state.checkedAt > FOCUS_REFRESH_MS) void refresh();
 });
 
+// Another window changed a shared preference.
+window.addEventListener("storage", (event) => {
+  if (event.key === RECENTS_KEY) {
+    renderRecents();
+  } else if (event.key === ZOOM_KEY) {
+    state.zoom = storedZoom();
+    applyZoom();
+  }
+});
+
 // Start
 
 $<HTMLButtonElement>("open-folder").prepend(icon("folder"));
 $<HTMLButtonElement>("empty-open").prepend(icon("folder"));
 refreshButton.append(icon("refresh"));
+$<HTMLButtonElement>("new-window").append(icon("new-window"));
 $<HTMLElement>("search-icon").append(icon("search"));
 writeFilterControls();
 if (!isTauri()) {
   showBrowserOnly();
 } else {
+  if (state.zoom !== 1) applyZoom();
   renderRecents();
+  // Only the first window reopens the last folder; a new window is for another one.
   const [lastFolder] = recents();
-  if (lastFolder) void openFolder(lastFolder);
+  if (lastFolder && getCurrentWindow().label === "main") void openFolder(lastFolder);
   else showEmpty();
 }

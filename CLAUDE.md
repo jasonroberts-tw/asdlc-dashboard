@@ -50,6 +50,8 @@ Beads 1.x stores issues in Dolt (`.beads/embeddeddolt` or a `bd`-managed `dolt s
 | `load_issue`     | `show --id=<id> --include-comments --include-dependents --brief-deps` | details panel: comments and incoming links      |
 | `change_marker`  | none: mtime of `.beads/last-touched` / `issues.jsonl`              | cheap change detection, polled every 2 s           |
 
+`new_window` is the one command that doesn't touch bd: it opens another window from the `tauri.conf.json` window config, labeled `board-N` (the first window is `main`). Only `main` reopens the last folder at startup.
+
 Dolt's own files change on every read, so their mtimes are useless for change detection; `last-touched` changes only on writes. The frontend also reloads every 60 s and on window focus, for changes that leave no marker.
 
 The GUI app does not inherit the shell's `PATH` when launched from Finder, so `beads.rs` searches `PATH` plus Homebrew and per-user bin directories, and passes that combined `PATH` to `bd` so it can find `git` and `dolt`.
@@ -60,7 +62,7 @@ The GUI app does not inherit the shell's `PATH` when launched from Finder, so `b
 - `board.ts`: pure logic (column assignment, filters, sorting, epic progress); tested in `board.test.ts`. Columns come from the status **category** (`active`, `wip`, `done`, `frozen`), so custom statuses land correctly; `blocked` status and open issues listed by `bd blocked` go to Blocked.
 - `render.ts` (columns and cards), `detail.ts` (details panel), `markdown.ts` (sanitized markdown, issue IDs turned into links), `format.ts` (times, initials).
 - `features.ts`: build-time toggles for hidden features, all off by default. `leases` gates the "stale" card badge and the "Lease expires" detail row.
-- `main.ts`: state, events, refresh loop. Recent folders and the "done" window are kept in `localStorage`. A `generation` counter drops answers that arrive after the user switched workspace.
+- `main.ts`: state, events, keyboard shortcuts, refresh loop. Recent folders, the "done" window and the zoom level are kept in `localStorage`, which all windows share; a `storage` listener picks up another window's changes. A `generation` counter drops answers that arrive after the user switched workspace.
 
 Link clicks are intercepted: `[data-issue]` elements open that issue, and `http(s)`/`mailto` links open in the system browser through the opener plugin. Nothing navigates the webview.
 
@@ -70,7 +72,7 @@ Link clicks are intercepted: `[data-issue]` elements open that issue, and `http(
 2. Register it in `tauri::generate_handler![...]` in `run()`.
 3. Call it from TS with `invoke`. JS argument keys are camelCase and map to snake_case Rust parameter names. Return types must implement `serde::Serialize`.
 
-Tauri plugins need both a Rust `.plugin(...)` registration in `run()` and a permission entry in `src-tauri/capabilities/default.json`. That file grants permissions to the window labeled `main`; a plugin call with no granted permission is rejected at runtime, not at compile time. The app uses `opener:default` and `dialog:allow-open`.
+Tauri plugins need both a Rust `.plugin(...)` registration in `run()` and a permission entry in `src-tauri/capabilities/default.json`. That file grants permissions to the windows labeled `main` and `board-*`; a plugin call with no granted permission is rejected at runtime, not at compile time. Beyond `core:default`, the app uses `core:window:allow-set-title` (window title = folder name), `core:webview:allow-set-webview-zoom` (⌘+/⌘−), `opener:default` and `dialog:allow-open`.
 
 Dev-server wiring: Vite must run on port **1420** with `strictPort` because `tauri.conf.json` `devUrl` points there (HMR uses 1421 when `TAURI_DEV_HOST` is set, e.g. for mobile). Vite ignores `src-tauri/` so Rust rebuilds don't trigger frontend reloads. `pnpm tauri build` bundles `dist/` as the frontend.
 
