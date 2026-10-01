@@ -59,7 +59,7 @@ The GUI app does not inherit the shell's `PATH` when launched from Finder, so `b
 ### Frontend modules
 
 - `beads.ts`: TypeScript shapes of bd's JSON and the `invoke` wrappers.
-- `board.ts`: pure logic (column assignment, filters, sorting, epic progress); tested in `board.test.ts`. Columns come from the status **category** (`active`, `wip`, `done`, `frozen`), so custom statuses land correctly; `blocked` status and open issues listed by `bd blocked` go to Blocked.
+- `board.ts`: pure logic (column assignment, filters, sorting, epic progress); tested in `board.test.ts`. Columns come from the status **category** (`active`, `wip`, `done`, `frozen`), so custom statuses land correctly; `blocked` status and open issues listed by `bd blocked` go to Blocked. Columns with no cards are hidden (`visibleColumns`), unless every column is empty.
 - `render.ts` (columns and cards), `detail.ts` (details panel), `markdown.ts` (sanitized markdown, issue IDs turned into links), `format.ts` (times, initials).
 - `features.ts`: build-time toggles for hidden features, all off by default. `leases` gates the "stale" card badge and the "Lease expires" detail row.
 - `main.ts`: state, events, keyboard shortcuts, refresh loop. Recent folders, the "done" window and the zoom level are kept in `localStorage`, which all windows share; a `storage` listener picks up another window's changes. A `generation` counter drops answers that arrive after the user switched workspace.

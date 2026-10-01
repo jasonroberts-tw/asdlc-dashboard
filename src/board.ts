@@ -108,6 +108,15 @@ export function buildColumns(
   return [...columns.values()];
 }
 
+/**
+ * The columns that have cards. When none do, every column stays, so an empty board keeps
+ * its shape and Done can still say how many closed issues its window leaves out.
+ */
+export function visibleColumns(columns: Column[]): Column[] {
+  const filled = columns.filter((column) => column.issues.length > 0);
+  return filled.length > 0 ? filled : columns;
+}
+
 function matchesFilters(issue: Issue, filters: Filters, terms: string[]): boolean {
   if (filters.type && issue.issue_type !== filters.type) return false;
   if (filters.priority && String(issue.priority) !== filters.priority) return false;

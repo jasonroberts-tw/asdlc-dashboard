@@ -19,6 +19,7 @@ import {
   DEFAULT_FILTERS,
   filterOptions,
   UNASSIGNED,
+  visibleColumns,
   type Filters,
   type Progress,
 } from "./board";
@@ -244,7 +245,7 @@ function renderBoard(): void {
   const now = new Date();
   renderColumns(
     boardEl,
-    buildColumns(state.data, categories(), state.filters, now),
+    visibleColumns(buildColumns(state.data, categories(), state.filters, now)),
     {
       categories: categories(),
       blockedBy: state.data.blocked_by,

@@ -345,17 +345,13 @@ select {
   --column-color: var(--status-active);
   flex: 1 1 0;
   min-width: 240px;
+  /* Empty columns are hidden, so one or two can be left; cards that wide are hard to read. */
+  max-width: 480px;
   display: flex;
   flex-direction: column;
   min-height: 0;
   border-radius: 10px;
   background: var(--surface-2);
-}
-
-/* An empty column gives most of its width to the others. */
-.column.is-empty {
-  flex-grow: 0.4;
-  min-width: 170px;
 }
 
 .column-hold {

@@ -42,7 +42,7 @@ function renderColumn(column: Column, ctx: BoardContext, doneDays: number): HTML
   return el(
     "section",
     {
-      class: cls("column", `column-${column.id}`, column.issues.length === 0 && "is-empty"),
+      class: cls("column", `column-${column.id}`),
       "aria-labelledby": headingId,
     },
     el(

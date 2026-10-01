@@ -8,6 +8,7 @@ import {
   descendantsOf,
   filterOptions,
   UNASSIGNED,
+  visibleColumns,
   type ColumnId,
 } from "./board";
 
@@ -159,6 +160,33 @@ describe("buildColumns", () => {
       "child",
       "epic",
       "grandchild",
+    ]);
+  });
+});
+
+describe("visibleColumns", () => {
+  const data: BoardData = {
+    issues: [
+      issue("open"),
+      issue("ancient", { status: "closed", closed_at: "2026-06-01T00:00:00Z" }),
+    ],
+    blocked_by: {},
+  };
+  const ids = (filters = DEFAULT_FILTERS) =>
+    visibleColumns(buildColumns(data, categories, filters, now)).map((c) => c.id);
+
+  it("hides columns with no cards, Done included when its window leaves every issue out", () => {
+    expect(ids()).toEqual(["ready"]);
+    expect(ids({ ...DEFAULT_FILTERS, doneDays: 0 })).toEqual(["ready", "done"]);
+  });
+
+  it("keeps every column when none has a card", () => {
+    expect(ids({ ...DEFAULT_FILTERS, text: "no such issue" })).toEqual([
+      "hold",
+      "blocked",
+      "ready",
+      "active",
+      "done",
     ]);
   });
 });
