@@ -957,9 +957,26 @@ select {
   overflow-x: auto;
 }
 
+/* `anywhere` lets table layout squeeze a column to one letter per line; `break-word` keeps the
+   longest word as each column's minimum width. Code and links can still break anywhere, so a
+   long path doesn't set the minimum. */
 .markdown :is(th, td) {
-  padding: 4px 8px;
+  padding: 5px 8px;
   border: 1px solid var(--border);
+  vertical-align: top;
+  overflow-wrap: break-word;
+}
+
+.markdown :is(th, td) :is(code, a) {
+  overflow-wrap: anywhere;
+}
+
+.markdown th {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.markdown th:not([align]) {
   text-align: left;
 }
 
