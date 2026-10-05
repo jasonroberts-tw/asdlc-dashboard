@@ -76,6 +76,8 @@ Link clicks are intercepted: `[data-issue]` elements open that issue, and `http(
 
 Tauri plugins need both a Rust `.plugin(...)` registration in `run()` and a permission entry in `src-tauri/capabilities/default.json`. That file grants permissions to the windows labeled `main` and `board-*`; a plugin call with no granted permission is rejected at runtime, not at compile time. Beyond `core:default`, the app uses `core:window:allow-set-title` (window title = folder name), `core:webview:allow-set-webview-zoom` (⌘+/⌘−), `opener:default` and `dialog:allow-open`.
 
+The window-state plugin is Rust-only (no npm package, no permission, since nothing calls it from JS). It restores the `main` window's size and position at launch from `.window-state.json` in the app config directory, written on quit; `board-*` windows are filtered out so they keep cascading from their opener. It's pinned to `~2.4` because 2.5 requires tauri 2.12.
+
 Dev-server wiring: Vite must run on port **1420** with `strictPort` because `tauri.conf.json` `devUrl` points there (HMR uses 1421 when `TAURI_DEV_HOST` is set, e.g. for mobile). Vite ignores `src-tauri/` so Rust rebuilds don't trigger frontend reloads. `pnpm tauri build` bundles `dist/` as the frontend.
 
 CSP is disabled (`app.security.csp: null`).

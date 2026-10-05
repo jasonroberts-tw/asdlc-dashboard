@@ -71,6 +71,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // Brings the main window back where it was. The board-N windows open cascaded from
+        // their opener instead, so they aren't tracked.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_filter(|label| label == "main")
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             open_workspace,
             load_board,
