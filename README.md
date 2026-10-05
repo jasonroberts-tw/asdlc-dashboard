@@ -12,9 +12,11 @@ folder that contains a `.beads` directory and its issues appear in five columns:
 | Done        | Closed issues, limited to a recent window by default                   |
 
 Click a card for its description, notes, links and comments; click an empty spot outside the
-panel to close it. Filter by text, type, priority, assignee, label or epic. The board reloads by
-itself a few seconds after anything writes to the database. Open another window (`⌘N`) to watch a
-second folder side by side.
+panel to close it. The panel's Graph button draws the issue's dependency graph, left to right from
+the issue, with links colored by type; switch between what it depends on and what depends on it,
+and click a box for that issue's details. Filter by text, type, priority, assignee, label or epic.
+The board reloads by itself a few seconds after anything writes to the database. Open another
+window (`⌘N`) to watch a second folder side by side.
 
 The board is read-only. It reads through `bd --readonly ... --json`, so it never changes the
 database. That also means it won't migrate an old database: if `bd` reports a schema mismatch, run
@@ -39,8 +41,9 @@ cargo test                 # backend unit tests
 cargo test -- --ignored    # also runs a test against a real bd workspace
 ```
 
-Keyboard: `/` focuses the filter, `Esc` closes the details panel, `⌘R` reloads, `⌘O` opens a folder,
-`⌘N` opens a new window, `⌘+` and `⌘−` zoom, `⌘0` resets the zoom. Use `Ctrl` on Windows and Linux.
+Keyboard: `/` focuses the filter, `Esc` closes the details panel and then the graph, `⌘R` reloads,
+`⌘O` opens a folder, `⌘N` opens a new window, `⌘+` and `⌘−` zoom, `⌘0` resets the zoom. Use `Ctrl`
+on Windows and Linux.
 
 ## Releasing
 

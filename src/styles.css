@@ -33,6 +33,7 @@
   --status-frozen: #8a9099;
 
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --detail-width: min(540px, 92vw);
 
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   font-size: 13px;
@@ -443,11 +444,13 @@ select {
   border-color: var(--border-strong);
 }
 
-.card[data-priority="0"] {
+.card[data-priority="0"],
+.graph-node[data-priority="0"] {
   box-shadow: inset 3px 0 0 var(--danger), var(--shadow);
 }
 
-.card[data-priority="1"] {
+.card[data-priority="1"],
+.graph-node[data-priority="1"] {
   box-shadow: inset 3px 0 0 var(--warn), var(--shadow);
 }
 
@@ -712,7 +715,7 @@ select {
   z-index: 10;
   display: flex;
   flex-direction: column;
-  width: min(540px, 92vw);
+  width: var(--detail-width);
   border-left: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--shadow-panel);
@@ -991,4 +994,248 @@ select {
 .issue-ref {
   font-family: var(--mono);
   font-size: 12px;
+}
+
+/* Dependency graph */
+
+.graph {
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+/* The details panel opens beside the graph rather than over it. */
+.detail:not([hidden]) ~ .graph {
+  right: var(--detail-width);
+}
+
+.graph-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 10px 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.graph-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.graph-root-id {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.graph-summary {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.graph-close {
+  margin-left: auto;
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--surface-2);
+}
+
+.segmented button {
+  height: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.segmented button:hover {
+  color: var(--text);
+}
+
+.segmented button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.graph-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.graph-canvas {
+  position: relative;
+}
+
+.graph-links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+}
+
+/* Link colors by dependency type; types not listed are gray. */
+.link-blocks { --link-color: var(--danger); }
+.link-parent-child { --link-color: var(--accent); }
+.link-discovered-from,
+.link-caused-by { --link-color: var(--type-feature); }
+.link-related,
+.link-relates-to { --link-color: var(--type-decision); }
+.link-supersedes,
+.link-duplicates { --link-color: var(--type-epic); }
+.link-tracks,
+.link-until { --link-color: var(--type-spike); }
+.link-validates { --link-color: var(--type-story); }
+
+.graph-link-line {
+  fill: none;
+  stroke: var(--link-color, var(--faint));
+  stroke-width: 1.5;
+}
+
+.graph-link-arrow {
+  fill: var(--link-color, var(--faint));
+}
+
+/* A wider, invisible stroke, so the link's tooltip is easy to reach. */
+.graph-link-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 10;
+}
+
+.graph-link:hover .graph-link-line {
+  stroke-width: 2.5;
+}
+
+.graph-link.back .graph-link-line {
+  stroke-dasharray: 5 4;
+}
+
+/* The layout in graph-view.ts sets each box's position and size. */
+.graph-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.graph-node:hover {
+  border-color: var(--border-strong);
+}
+
+.graph-node.root {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.graph-node.selected {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+}
+
+.graph-node.done:not(:hover, .selected, .root) {
+  opacity: 0.7;
+}
+
+.graph-node.unknown {
+  border-style: dashed;
+  background: var(--surface-2);
+}
+
+.graph-node-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.graph-node-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.graph-node-id {
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-node-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+}
+
+.graph-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: var(--shadow);
+  color: var(--muted);
+  font-size: 11.5px;
+  list-style: none;
+  pointer-events: none;
+}
+
+.graph-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-swatch {
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--link-color, var(--faint));
 }

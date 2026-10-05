@@ -83,6 +83,18 @@ export function renderDetail(
         "button",
         {
           type: "button",
+          class: "button",
+          "data-action": "open-graph",
+          "data-id": issue.id,
+          title: "Show this issue's dependency graph",
+        },
+        icon("graph"),
+        "Graph",
+      ),
+      el(
+        "button",
+        {
+          type: "button",
           class: "icon-button",
           "data-action": "close-detail",
           "aria-label": "Close details",

@@ -7,7 +7,19 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   attrs: Attrs = {},
   ...children: (Child | Child[])[]
 ): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
+  return fill(document.createElement(tag), attrs, children);
+}
+
+/** Creates an SVG element, as `el` creates an HTML one. */
+export function svgEl<K extends keyof SVGElementTagNameMap>(
+  tag: K,
+  attrs: Attrs = {},
+  ...children: (Child | Child[])[]
+): SVGElementTagNameMap[K] {
+  return fill(document.createElementNS("http://www.w3.org/2000/svg", tag), attrs, children);
+}
+
+function fill<T extends Element>(node: T, attrs: Attrs, children: (Child | Child[])[]): T {
   for (const [name, value] of Object.entries(attrs)) {
     if (value === null || value === undefined || value === false) continue;
     node.setAttribute(name, value === true ? "" : String(value));
@@ -36,6 +48,7 @@ const ICONS = {
   comment: "M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z",
   copy: "M5.5 5.5h7v7h-7zM3.5 10.5v-7h7",
   folder: "M1.5 4.5v8a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H7.5L6 3.5H2.5a1 1 0 0 0-1 1z",
+  graph: "M1.5 6.5h3v3h-3zM11.5 2.5h3v3h-3zM11.5 10.5h3v3h-3zM4.5 8H8M8 4v8M8 4h3.5M8 12h3.5",
   "new-window": "M2.5 2.5h11v11h-11zM2.5 5.5h11M8 7.5v4M6 9.5h4",
   refresh: "M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3",
   search: "M7 2.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9zM10.3 10.3l3.2 3.2",
@@ -44,13 +57,9 @@ const ICONS = {
 export type IconName = keyof typeof ICONS;
 
 export function icon(name: IconName): SVGSVGElement {
-  const ns = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(ns, "svg");
-  svg.setAttribute("viewBox", "0 0 16 16");
-  svg.setAttribute("class", "icon");
-  svg.setAttribute("aria-hidden", "true");
-  const path = document.createElementNS(ns, "path");
-  path.setAttribute("d", ICONS[name]);
-  svg.append(path);
-  return svg;
+  return svgEl(
+    "svg",
+    { viewBox: "0 0 16 16", class: "icon", "aria-hidden": "true" },
+    svgEl("path", { d: ICONS[name] }),
+  );
 }

@@ -25,6 +25,8 @@ import {
 } from "./board";
 import { renderDetail, type DetailContext, type DetailState } from "./detail";
 import { el, icon } from "./dom";
+import { buildGraph, type GraphDirection } from "./graph";
+import { renderGraph } from "./graph-view";
 import { issueRefPattern, type IssueRefs } from "./markdown";
 import { renderColumns } from "./render";
 
@@ -56,6 +58,9 @@ interface State {
   filters: Filters;
   selectedId: string | null;
   detail: DetailState | null;
+  /** The issue the dependency graph is drawn from, while the graph is open. */
+  graphRootId: string | null;
+  graphDirection: GraphDirection;
   marker: number | null;
   checkedAt: number;
   /** Bumped when a workspace opens, so answers about the previous one are dropped. */
@@ -75,6 +80,8 @@ const state: State = {
   filters: { ...DEFAULT_FILTERS, doneDays: storedDoneDays() },
   selectedId: null,
   detail: null,
+  graphRootId: null,
+  graphDirection: "dependencies",
   marker: null,
   checkedAt: 0,
   generation: 0,
@@ -85,6 +92,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const boardEl = $<HTMLElement>("board");
 const emptyEl = $<HTMLElement>("empty");
 const detailEl = $<HTMLElement>("detail");
+const graphEl = $<HTMLElement>("graph");
 const bannerEl = $<HTMLElement>("banner");
 const recentSelect = $<HTMLSelectElement>("recent");
 const pathEl = $<HTMLElement>("workspace-path");
@@ -136,6 +144,7 @@ async function openFolder(root: string): Promise<void> {
       filters: { ...DEFAULT_FILTERS, doneDays: state.filters.doneDays },
       marker: null,
     });
+    closeGraph();
     closeDetail();
     writeFilterControls();
     rememberRecent(root);
@@ -205,6 +214,7 @@ function applyData(data: BoardData): void {
   }
   // Re-render even when nothing changed, so relative times stay current.
   renderBoard();
+  if (changed && state.graphRootId) renderGraphView();
   if (changed && state.selectedId) {
     renderDetailPanel();
     void fetchDetail(state.selectedId);
@@ -260,8 +270,8 @@ function renderBoard(): void {
 }
 
 function markSelected(): void {
-  for (const card of boardEl.querySelectorAll<HTMLElement>(".card")) {
-    card.classList.toggle("selected", card.dataset.issue === state.selectedId);
+  for (const item of document.querySelectorAll<HTMLElement>(".card, .graph-node")) {
+    item.classList.toggle("selected", item.dataset.issue === state.selectedId);
   }
 }
 
@@ -336,6 +346,8 @@ async function selectIssue(id: string): Promise<void> {
   if (switching || state.detail?.status !== "loaded") state.detail = { status: "loading" };
   markSelected();
   renderDetailPanel(switching);
+  // The panel takes room from the graph, which can cover the issue just clicked.
+  graphNode(id)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   await fetchDetail(id);
 }
 
@@ -385,15 +397,15 @@ function detailContext(): DetailContext {
   };
 }
 
-function closeDetail(refocusCard = true): void {
+function closeDetail(refocus = true): void {
   const id = state.selectedId;
   state.selectedId = null;
   state.detail = null;
   detailEl.hidden = true;
   detailEl.replaceChildren();
   markSelected();
-  if (id && refocusCard) {
-    boardEl.querySelector<HTMLElement>(`.card[data-issue="${CSS.escape(id)}"]`)?.focus();
+  if (id && refocus) {
+    (graphNode(id) ?? boardEl.querySelector<HTMLElement>(`.card[data-issue="${CSS.escape(id)}"]`))?.focus();
   }
 }
 
@@ -425,6 +437,86 @@ async function copyId(button: HTMLElement): Promise<void> {
   setTimeout(() => {
     if (label) label.textContent = id;
   }, 1200);
+}
+
+// Dependency graph
+
+function openGraph(id: string): void {
+  // Rather than an empty graph, show the other way: an epic usually has children but no dependencies.
+  const issues = state.data?.issues ?? [];
+  const other: GraphDirection =
+    state.graphDirection === "dependencies" ? "dependents" : "dependencies";
+  if (
+    buildGraph(id, issues, state.graphDirection).links.length === 0 &&
+    buildGraph(id, issues, other).links.length > 0
+  ) {
+    state.graphDirection = other;
+  }
+  state.graphRootId = id;
+  graphEl.hidden = false;
+  renderGraphView(true);
+  graphNode(id)?.focus({ preventScroll: true });
+}
+
+function setGraphDirection(direction: GraphDirection): void {
+  if (direction === state.graphDirection) return;
+  state.graphDirection = direction;
+  renderGraphView(true);
+}
+
+/** Draws the graph, keeping its scroll position and focus unless `reset` brings the root into view. */
+function renderGraphView(reset = false): void {
+  const rootId = state.graphRootId;
+  if (!rootId) return;
+  const scroller = graphEl.querySelector<HTMLElement>(".graph-scroll");
+  const scroll = scroller && { top: scroller.scrollTop, left: scroller.scrollLeft };
+  const focused = document.activeElement;
+  const refocus =
+    focused instanceof HTMLElement && graphEl.contains(focused) ? sameControl(focused) : null;
+
+  graphEl.replaceChildren(
+    ...renderGraph(rootId, state.graphDirection, {
+      issues: state.data?.issues ?? [],
+      issuesById: state.issuesById,
+      categories: categories(),
+      selectedId: state.selectedId,
+    }),
+  );
+
+  const next = graphEl.querySelector<HTMLElement>(".graph-scroll");
+  if (reset) {
+    graphNode(rootId)?.scrollIntoView({ block: "center", inline: "nearest" });
+  } else if (next && scroll) {
+    next.scrollTop = scroll.top;
+    next.scrollLeft = scroll.left;
+  }
+  if (refocus) graphEl.querySelector<HTMLElement>(refocus)?.focus({ preventScroll: true });
+}
+
+/** A selector for the same control once the graph is drawn again. */
+function sameControl(element: HTMLElement): string | null {
+  const { issue, direction, action } = element.dataset;
+  if (issue) return `.graph-node[data-issue="${CSS.escape(issue)}"]`;
+  if (direction) return `[data-direction="${CSS.escape(direction)}"]`;
+  if (action) return `[data-action="${CSS.escape(action)}"]`;
+  return null;
+}
+
+function closeGraph(): void {
+  const id = state.graphRootId;
+  if (!id) return;
+  state.graphRootId = null;
+  graphEl.hidden = true;
+  graphEl.replaceChildren();
+  // Back to where the graph was opened: the details panel, or the board if that has closed.
+  (
+    detailEl.querySelector<HTMLElement>('[data-action="open-graph"]') ??
+    boardEl.querySelector<HTMLElement>(`.card[data-issue="${CSS.escape(id)}"]`)
+  )?.focus();
+}
+
+function graphNode(id: string): HTMLElement | null {
+  return graphEl.querySelector<HTMLElement>(`.graph-node[data-issue="${CSS.escape(id)}"]`);
 }
 
 // Windows and zoom
@@ -607,6 +699,15 @@ document.addEventListener("click", (event) => {
       case "copy-id":
         void copyId(action);
         break;
+      case "open-graph":
+        openGraph(action.dataset.id!);
+        break;
+      case "graph-direction":
+        setGraphDirection(action.dataset.direction as GraphDirection);
+        break;
+      case "close-graph":
+        closeGraph();
+        break;
       case "clear-filters":
         clearFilters();
         break;
@@ -659,13 +760,16 @@ document.addEventListener("keydown", (event) => {
       onFiltersChanged();
     } else if (state.selectedId) {
       closeDetail();
+    } else if (state.graphRootId) {
+      closeGraph();
     } else if (isTyping(event.target)) {
       (event.target as HTMLElement).blur();
     }
     return;
   }
   if (isTyping(event.target)) return;
-  if (event.key === "/") {
+  // The filter is under the graph and doesn't apply to it.
+  if (event.key === "/" && !state.graphRootId) {
     event.preventDefault();
     searchInput.focus();
     searchInput.select();
