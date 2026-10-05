@@ -29,6 +29,7 @@ import { buildGraph, type GraphDirection } from "./graph";
 import { renderGraph } from "./graph-view";
 import { issueRefPattern, type IssueRefs } from "./markdown";
 import { renderColumns } from "./render";
+import { scrollSideways } from "./wheel";
 
 /** How often to look for a write by bd; the check only reads a file's modification time. */
 const WATCH_INTERVAL_MS = 2_000;
@@ -781,6 +782,18 @@ document.addEventListener("keydown", (event) => {
     void selectIssue(card.dataset.issue!);
   }
 });
+
+// A mouse wheel only turns up and down; where that scrolls nothing, it scrolls sideways.
+// Not passive, so the wheel's own scrolling can be cancelled.
+boardEl.addEventListener("wheel", (event) => scrollSideways(event, boardEl), { passive: false });
+graphEl.addEventListener(
+  "wheel",
+  (event) => {
+    const scroller = (event.target as Element).closest<HTMLElement>(".graph-scroll");
+    if (scroller) scrollSideways(event, scroller);
+  },
+  { passive: false },
+);
 
 filtersForm.addEventListener("input", onFiltersChanged);
 filtersForm.addEventListener("submit", (event) => event.preventDefault());
