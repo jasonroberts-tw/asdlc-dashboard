@@ -214,20 +214,24 @@ describe("childProgress", () => {
 });
 
 describe("filterOptions", () => {
-  it("lists types, assignees, open issues' labels and epics with open epics first", () => {
+  it("lists types, assignees, open issues' labels, and open epics and features", () => {
     const options = filterOptions(
       [
         issue("e-closed", { issue_type: "epic", status: "closed", priority: 0, labels: ["old"] }),
         issue("e-low", { issue_type: "epic", priority: 3 }),
         issue("e-high", { issue_type: "epic", priority: 1 }),
+        issue("f-closed", { issue_type: "feature", status: "closed", priority: 0 }),
+        issue("f-deferred", { issue_type: "feature", status: "deferred", priority: 2 }),
+        issue("f-active", { issue_type: "feature", status: "in_progress", priority: 1 }),
         issue("t", { assignee: "Zed", labels: ["ui", "Backend"] }),
         issue("u", { issue_type: "bug", assignee: "Ada", labels: ["ui"] }),
       ],
       categories,
     );
-    expect(options.types).toEqual(["bug", "epic", "task"]);
+    expect(options.types).toEqual(["bug", "epic", "feature", "task"]);
     expect(options.assignees).toEqual(["Ada", "Zed"]);
     expect(options.labels).toEqual(["Backend", "ui"]);
-    expect(options.epics.map((e) => e.id)).toEqual(["e-high", "e-low", "e-closed"]);
+    expect(options.epics.map((e) => e.id)).toEqual(["e-high", "e-low"]);
+    expect(options.features.map((f) => f.id)).toEqual(["f-active", "f-deferred"]);
   });
 });

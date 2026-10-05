@@ -180,8 +180,10 @@ export interface FilterOptions {
   assignees: string[];
   /** Labels on issues that aren't closed. */
   labels: string[];
-  /** Open epics first, then closed ones. */
+  /** Epics that aren't closed. */
   epics: Issue[];
+  /** Features that aren't closed. */
+  features: Issue[];
 }
 
 export function filterOptions(
@@ -197,19 +199,16 @@ export function filterOptions(
     if (issue.assignee) assignees.add(issue.assignee);
     if (!isDone(issue)) for (const label of issue.labels ?? []) labels.add(label);
   }
-  const epics = issues
-    .filter((issue) => issue.issue_type === "epic")
-    .sort(
-      (a, b) =>
-        Number(isDone(a)) - Number(isDone(b)) ||
-        a.priority - b.priority ||
-        a.id.localeCompare(b.id),
-    );
+  const openOfType = (type: string) =>
+    issues
+      .filter((issue) => issue.issue_type === type && !isDone(issue))
+      .sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id));
   return {
     types: [...types].sort(),
     assignees: [...assignees].sort((a, b) => a.localeCompare(b)),
     labels: [...labels].sort((a, b) => a.localeCompare(b)),
-    epics,
+    epics: openOfType("epic"),
+    features: openOfType("feature"),
   };
 }
 

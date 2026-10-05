@@ -309,21 +309,39 @@ function updateFilterOptions(): void {
     ...options.assignees.map(same),
   ]);
   setOptions(labelSelect, [["", "All labels"], ...options.labels.map(same)]);
-  setOptions(epicSelect, [
-    ["", "All epics"],
-    ...options.epics.map((epic): [string, string] => [
-      epic.id,
-      `${categories()[epic.status] === "done" ? "✓ " : ""}${epic.id} · ${truncate(epic.title, 60)}`,
-    ]),
-  ]);
-  // A selected option that no longer exists falls back to "all".
+  const issueOption = (issue: Issue): Option => [
+    issue.id,
+    `${issue.id} · ${truncate(issue.title, 60)}`,
+  ];
+  setOptions(
+    epicSelect,
+    [["", "All epics & features"]],
+    [
+      ["Epics", options.epics.map(issueOption)],
+      ["Features", options.features.map(issueOption)],
+    ],
+  );
+  // A selected option that no longer exists, such as a closed epic, falls back to "all".
   readFilterControls();
 }
 
-function setOptions(select: HTMLSelectElement, options: [value: string, label: string][]): void {
+type Option = [value: string, label: string];
+
+/** Replaces the options, then the optgroups that have any, keeping the selection if it's still there. */
+function setOptions(
+  select: HTMLSelectElement,
+  options: Option[],
+  groups: [label: string, options: Option[]][] = [],
+): void {
   const value = select.value;
-  select.replaceChildren(...options.map(([v, label]) => el("option", { value: v }, label)));
-  select.value = options.some(([v]) => v === value) ? value : "";
+  const option = ([v, label]: Option) => el("option", { value: v }, label);
+  select.replaceChildren(
+    ...options.map(option),
+    ...groups
+      .filter(([, items]) => items.length > 0)
+      .map(([label, items]) => el("optgroup", { label }, items.map(option))),
+  );
+  select.value = [...select.options].some((o) => o.value === value) ? value : "";
 }
 
 function onFiltersChanged(): void {
