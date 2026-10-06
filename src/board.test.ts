@@ -189,6 +189,26 @@ describe("visibleColumns", () => {
       "done",
     ]);
   });
+
+  it("leaves out On hold and its issues when it's hidden, even on an empty board", () => {
+    const held: BoardData = {
+      issues: [issue("open"), issue("later", { status: "deferred" })],
+      blocked_by: {},
+    };
+    const hidden = { ...DEFAULT_FILTERS, hideHold: true };
+    const shown = buildColumns(held, categories, DEFAULT_FILTERS, now);
+    expect(visibleColumns(shown).map((c) => c.id)).toEqual(["hold", "ready"]);
+
+    const columns = buildColumns(held, categories, hidden, now);
+    expect(columns.flatMap((c) => c.issues.map((i) => i.id))).toEqual(["open"]);
+    expect(visibleColumns(columns).map((c) => c.id)).toEqual(["ready"]);
+    expect(ids({ ...hidden, text: "no such issue" })).toEqual([
+      "blocked",
+      "ready",
+      "active",
+      "done",
+    ]);
+  });
 });
 
 describe("descendantsOf", () => {

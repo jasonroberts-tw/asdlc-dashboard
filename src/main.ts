@@ -42,6 +42,7 @@ const RECENTS_KEY = "recent-workspaces";
 const DONE_DAYS_KEY = "done-days";
 /** The choices in the "Done" filter; 0 shows every closed issue. */
 const DONE_DAY_CHOICES = [1, 7, 30, 0];
+const HIDE_HOLD_KEY = "hide-hold";
 const ZOOM_KEY = "zoom";
 /** The steps ⌘+ and ⌘− move through, as in a browser. */
 const ZOOM_LEVELS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
@@ -78,7 +79,7 @@ const state: State = {
   issuesById: new Map(),
   progress: new Map(),
   refs: null,
-  filters: { ...DEFAULT_FILTERS, doneDays: storedDoneDays() },
+  filters: { ...DEFAULT_FILTERS, doneDays: storedDoneDays(), hideHold: storedHideHold() },
   selectedId: null,
   detail: null,
   graphRootId: null,
@@ -107,6 +108,7 @@ const assigneeSelect = $<HTMLSelectElement>("filter-assignee");
 const labelSelect = $<HTMLSelectElement>("filter-label");
 const epicSelect = $<HTMLSelectElement>("filter-epic");
 const doneSelect = $<HTMLSelectElement>("filter-done");
+const holdToggle = $<HTMLInputElement>("filter-hold");
 const clearFiltersButton = $<HTMLButtonElement>("clear-filters");
 
 // Workspace lifecycle
@@ -142,7 +144,7 @@ async function openFolder(root: string): Promise<void> {
       issuesById: new Map(),
       progress: new Map(),
       refs: pattern ? { pattern, isKnown: (id: string) => state.issuesById.has(id) } : null,
-      filters: { ...DEFAULT_FILTERS, doneDays: state.filters.doneDays },
+      filters: clearedFilters(),
       marker: null,
     });
     closeGraph();
@@ -287,6 +289,7 @@ function readFilterControls(): void {
     label: labelSelect.value,
     epic: epicSelect.value,
     doneDays: Number(doneSelect.value),
+    hideHold: holdToggle.checked,
   };
 }
 
@@ -298,6 +301,7 @@ function writeFilterControls(): void {
   labelSelect.value = state.filters.label;
   epicSelect.value = state.filters.epic;
   doneSelect.value = String(state.filters.doneDays);
+  holdToggle.checked = state.filters.hideHold;
 }
 
 function updateFilterOptions(): void {
@@ -346,14 +350,20 @@ function setOptions(
 
 function onFiltersChanged(): void {
   readFilterControls();
-  storeDoneDays(state.filters.doneDays);
+  storeFilterPreferences();
   renderBoard();
 }
 
 function clearFilters(): void {
-  state.filters = { ...DEFAULT_FILTERS, doneDays: state.filters.doneDays };
+  state.filters = clearedFilters();
   writeFilterControls();
   renderBoard();
+}
+
+/** The default filters, keeping the choices that are preferences rather than filters. */
+function clearedFilters(): Filters {
+  const { doneDays, hideHold } = state.filters;
+  return { ...DEFAULT_FILTERS, doneDays, hideHold };
 }
 
 // Detail panel
@@ -661,11 +671,20 @@ function storedZoom(): number {
   }
 }
 
-function storeDoneDays(days: number): void {
+function storedHideHold(): boolean {
   try {
-    localStorage.setItem(DONE_DAYS_KEY, String(days));
+    return localStorage.getItem(HIDE_HOLD_KEY) === "true";
   } catch {
-    // Not remembering the preference is harmless.
+    return DEFAULT_FILTERS.hideHold;
+  }
+}
+
+function storeFilterPreferences(): void {
+  try {
+    localStorage.setItem(DONE_DAYS_KEY, String(state.filters.doneDays));
+    localStorage.setItem(HIDE_HOLD_KEY, String(state.filters.hideHold));
+  } catch {
+    // Not remembering the preferences is harmless.
   }
 }
 

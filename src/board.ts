@@ -30,6 +30,8 @@ export interface Filters {
   epic: string;
   /** Hide issues closed longer ago than this; 0 shows every closed issue. */
   doneDays: number;
+  /** Leave out the On hold column and its issues. */
+  hideHold: boolean;
 }
 
 export const DEFAULT_FILTERS: Filters = {
@@ -40,6 +42,7 @@ export const DEFAULT_FILTERS: Filters = {
   label: "",
   epic: "",
   doneDays: 7,
+  hideHold: false,
 };
 
 export interface Column extends ColumnSpec {
@@ -86,12 +89,17 @@ export function buildColumns(
     filters.doneDays > 0 ? now.getTime() - filters.doneDays * DAY_MS : null;
 
   const columns = new Map<ColumnId, Column>(
-    COLUMNS.map((spec) => [spec.id, { ...spec, issues: [], hidden: 0 }]),
+    COLUMNS.filter((spec) => !(filters.hideHold && spec.id === "hold")).map((spec) => [
+      spec.id,
+      { ...spec, issues: [], hidden: 0 },
+    ]),
   );
   for (const issue of data.issues) {
     if (inEpic && !inEpic.has(issue.id)) continue;
     if (!matchesFilters(issue, filters, terms)) continue;
-    const column = columns.get(columnFor(issue, categories, data.blocked_by))!;
+    // Missing only when it's On hold and that column is hidden.
+    const column = columns.get(columnFor(issue, categories, data.blocked_by));
+    if (!column) continue;
     if (
       column.id === "done" &&
       doneSince !== null &&
